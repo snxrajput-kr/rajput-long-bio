@@ -347,9 +347,9 @@ def home():
             }
         },
         "examples": {
-            "uid_pass": "/bio?bio=Hello World&uid=4569404695&pass=RAGHAVLIKESBOT_RAGHAV_2THCG",
-            "jwt": "/bio?bio=Hello World&jwt=eyJhbGciOiJIUzI1NiIs...",
-            "access": "/bio?bio=Hello World&access=660b275ac9fc3f12b65ed9008344cb74..."
+            "uid_pass": "/bio?bio=Your_Bio&uid=4569404695&pass=RAGHAVLIKESBOT_RAGHAV_2THCG",
+            "jwt": "/bio?bio=Your_Bio&jwt=eyJhbGciOiJIUzI1NiIs...",
+            "access": "/bio?bio=Your_Bio&access=660b275ac9fc3f12b65ed9008344cb74..."
         }
     })
 
