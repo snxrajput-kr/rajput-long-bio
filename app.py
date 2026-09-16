@@ -238,7 +238,7 @@ REGION_MAP = {
     "NA": {"update_url": "https://client.us.freefiremobile.com/UpdateSocialBasicInfo", "major_login_url": "https://loginbp.ggpolarbear.com/MajorLogin"},
 }
 
-FREEFIRE_VERSION = "OB54"
+FREEFIRE_VERSION = "OB55"
 OAUTH_URL = "https://100067.connect.garena.com/oauth/guest/token/grant"
 
 BIO_HEADERS = {
